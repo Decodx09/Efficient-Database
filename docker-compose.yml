@@ -1,90 +1,101 @@
 version: '3.8'
-
 services:
-  # Kafka
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
+    image: confluentinc/cp-zookeeper:7.4.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on: [zookeeper]
     ports:
       - "9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
 
-  # MySQL Shard 1 Master
-  mysql-shard1-master:
+  mysql-shard-1:
     image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: shard1
     ports:
       - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=1 --log-bin=mysql-bin
+    volumes:
+      - mysql1_data:/var/lib/mysql
 
-  # MySQL Shard 1 Replica 1
-  mysql-shard1-replica1:
+  mysql-shard-2:
     image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: shard2
     ports:
       - "3307:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=2
+    volumes:
+      - mysql2_data:/var/lib/mysql
 
-  # MySQL Shard 1 Replica 2
-  mysql-shard1-replica2:
+  mysql-shard-3:
     image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: shard3
     ports:
       - "3308:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=3
+    volumes:
+      - mysql3_data:/var/lib/mysql
 
-  # MySQL Shard 2 Master
-  mysql-shard2-master:
+  mysql-read:
     image: mysql:8.0
-    ports:
-      - "3309:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=4 --log-bin=mysql-bin
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: readdb
+    ports:
+      - "3309:3306"  # Fixed this from 3306 to 3309
+    volumes:
+      - mysql_read_data:/var/lib/mysql
 
-  # MySQL Shard 2 Replica 1
-  mysql-shard2-replica1:
-    image: mysql:8.0
+  testing-api:
+    build: ./testing-api
     ports:
-      - "3310:3306"
+      - "3000:3000"
+    depends_on: [kafka, mysql-shard-1, mysql-shard-2, mysql-shard-3]
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=5
+      KAFKA_BROKERS: kafka:9092
+      PRODUCER_SERVICE_URL: http://producer-service:8080
 
-  # MySQL Shard 2 Replica 2
-  mysql-shard2-replica2:
-    image: mysql:8.0
+  producer-service:
+    build: ./producer-service
     ports:
-      - "3311:3306"
+      - "8080:8080"
+    depends_on: [kafka]
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=6
+      KAFKA_BROKERS: kafka:9092
+      MYSQL_SHARD_1: mysql-shard-1:3306
+      MYSQL_SHARD_2: mysql-shard-2:3306
+      MYSQL_SHARD_3: mysql-shard-3:3306
 
-  # Read Replica
-  mysql-read-replica:
-    image: mysql:8.0
-    ports:
-      - "3312:3306"
+  consumer-service:
+    build: ./consumer-service
+    depends_on: [kafka, mysql-shard-1, mysql-shard-2, mysql-shard-3]
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: users_db
-    command: --server-id=7
+      KAFKA_BROKERS: kafka:9092
+      MYSQL_SHARD_1: mysql-shard-1:3306
+      MYSQL_SHARD_2: mysql-shard-2:3306
+      MYSQL_SHARD_3: mysql-shard-3:3306
+
+  cdc-service:
+    build: ./cdc-service
+    depends_on: [kafka, mysql-read]
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      MYSQL_READ: mysql-read:3306
+
+volumes:
+  mysql1_data:
+  mysql2_data:
+  mysql3_data:
+  mysql_read_data:
