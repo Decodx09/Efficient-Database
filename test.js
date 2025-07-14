@@ -13,7 +13,7 @@ class SimpleLoadTest {
   }
 
   async runTest(url, concurrency = 10, duration = 30) {
-    console.log(`🚀 Testing ${url} with ${concurrency} concurrent users for ${duration}s`);
+    console.log(`Testing ${url} with ${concurrency} concurrent users for ${duration}s`);
     
     const startTime = performance.now();
     const endTime = startTime + (duration * 1000);
@@ -62,7 +62,7 @@ class SimpleLoadTest {
   }
 
   printResults(testDuration) {
-    console.log('\n📊 PERFORMANCE RESULTS:');
+    console.log('\nPERFORMANCE RESULTS:');
     console.log('='.repeat(50));
     console.log(`Total Requests: ${this.results.requests}`);
     console.log(`Errors: ${this.results.errors}`);
@@ -70,13 +70,13 @@ class SimpleLoadTest {
     console.log(`Requests/Second: ${(this.results.requests / testDuration).toFixed(2)}`);
     console.log(`Average Response Time: ${(this.results.totalTime / this.results.requests).toFixed(2)}ms`);
     console.log(`Test Duration: ${testDuration.toFixed(2)}s`);
-    console.log('\n📈 Response Codes:', this.results.responseTypes);
+    console.log('\nResponse Codes:', this.results.responseTypes);
     
     // Simple performance rating
     const rps = this.results.requests / testDuration;
     const avgTime = this.results.totalTime / this.results.requests;
     
-    console.log('\n🎯 PERFORMANCE RATING:');
+    console.log('\nPERFORMANCE RATING:');
     if (rps > 100 && avgTime < 100) console.log('🟢 EXCELLENT - Ready for production!');
     else if (rps > 50 && avgTime < 200) console.log('🟡 GOOD - Needs minor optimization');
     else if (rps > 20 && avgTime < 500) console.log('🟠 AVERAGE - Requires optimization');
