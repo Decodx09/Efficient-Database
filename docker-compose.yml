@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -16,7 +16,7 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
   mysql-shard-1:
     image: mysql:8.0
@@ -54,7 +54,7 @@ services:
       MYSQL_ROOT_PASSWORD: rootpass
       MYSQL_DATABASE: readdb
     ports:
-      - "3309:3306"  # Fixed this from 3306 to 3309
+      - "3309:3306" # Fixed this from 3306 to 3309
     volumes:
       - mysql_read_data:/var/lib/mysql
 
@@ -89,6 +89,8 @@ services:
 
   cdc-service:
     build: ./cdc-service
+    ports:
+      - "5001:5001"
     depends_on: [kafka, mysql-read]
     environment:
       KAFKA_BROKERS: kafka:9092

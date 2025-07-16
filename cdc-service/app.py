@@ -6,6 +6,8 @@ from mysql.connector import pooling
 import os
 import time
 from datetime import datetime
+from flask import Flask, jsonify, request
+import threading
 
 # Kafka Consumer for CDC
 consumer = KafkaConsumer(
@@ -28,6 +30,9 @@ read_db_pool = pooling.MySQLConnectionPool(
     collation='utf8mb4_unicode_ci',
     autocommit=True
 )
+
+# Flask app for API endpoints
+app = Flask(__name__)
 
 def init_read_database():
     """Initialize read database tables"""
@@ -114,8 +119,134 @@ def replicate_to_read_db(event):
     except Exception as e:
         print(f"CDC Error: {e}")
 
-def main():
-    print("Starting CDC service...")
+@app.route('/', methods=['GET'])
+def index():
+    """Index endpoint to fetch all users"""
+    try:
+        conn = read_db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 10, type=int)
+        offset = (page - 1) * limit
+        
+        # Get total count
+        cursor.execute("SELECT COUNT(*) as total FROM users")
+        total = cursor.fetchone()['total']
+        
+        # Get paginated users
+        cursor.execute(
+            "SELECT user_id, name, email, age, shard_id, created_at, updated_at FROM users ORDER BY user_id LIMIT %s OFFSET %s",
+            (limit, offset)
+        )
+        users = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'users': users,
+                'pagination': {
+                    'page': page,
+                    'limit': limit,
+                    'total': total,
+                    'pages': (total + limit - 1) // limit
+                }
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    """Get specific user by ID"""
+    try:
+        conn = read_db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        cursor.execute(
+            "SELECT user_id, name, email, age, shard_id, created_at, updated_at FROM users WHERE user_id = %s",
+            (user_id,)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'User not found'}), 404
+        
+        # Get user events
+        cursor.execute(
+            "SELECT event_type, event_data, processed_at FROM user_events WHERE user_id = %s ORDER BY processed_at DESC LIMIT 10",
+            (user_id,)
+        )
+        events = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'user': user,
+                'recent_events': events
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/events', methods=['GET'])
+def get_events():
+    """Get recent events"""
+    try:
+        conn = read_db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        limit = request.args.get('limit', 20, type=int)
+        event_type = request.args.get('type')
+        
+        query = "SELECT id, user_id, event_type, event_data, shard_id, processed_at FROM user_events"
+        params = []
+        
+        if event_type:
+            query += " WHERE event_type = %s"
+            params.append(event_type)
+        
+        query += " ORDER BY processed_at DESC LIMIT %s"
+        params.append(limit)
+        
+        cursor.execute(query, params)
+        events = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'events': events
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'cdc-service',
+        'timestamp': datetime.now().isoformat()
+    })
+
+def cdc_consumer():
+    """CDC consumer function to run in separate thread"""
+    print("Starting CDC consumer...")
     init_read_database()
     
     while True:
@@ -129,6 +260,16 @@ def main():
         except Exception as e:
             print(f"CDC Consumer error: {e}")
             time.sleep(5)
+
+def main():
+    print("Starting CDC service with API endpoints...")
+    
+    # Start CDC consumer in a separate thread
+    consumer_thread = threading.Thread(target=cdc_consumer, daemon=True)
+    consumer_thread.start()
+    
+    # Start Flask API server
+    app.run(host='0.0.0.0', port=5000, debug=False)
 
 if __name__ == '__main__':
     main()
